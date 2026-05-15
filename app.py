@@ -361,7 +361,7 @@ st.subheader("📧 Phishing Email Triage — AI-Assisted Analysis")
 @st.cache_data
 def load_phishing_data():
     try:
-        df = pd.read_csv("data/phishing_email.csv")
+        df = pd.read_csv("data/phishing_sample.csv")
         phishing = df[df['label'] == 1].head(10).reset_index(drop=True)
         return phishing
     except Exception as e:
