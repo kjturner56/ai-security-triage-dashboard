@@ -212,3 +212,115 @@ if st.session_state.audit_log:
     )
 else:
     st.info("No decisions logged yet. Triage a CVE above to begin.")
+    
+# ── PHISHING EMAIL TRIAGE ─────────────────────────────────────────────────────
+
+st.divider()
+st.subheader("📧 Phishing Email Triage — AI-Assisted Analysis")
+
+@st.cache_data
+def load_phishing_data():
+    try:
+        df = pd.read_csv("data/phishing_email.csv")
+        phishing = df[df['label'] == 1].head(10).reset_index(drop=True)
+        return phishing
+    except Exception as e:
+        st.error(f"Error loading phishing data: {e}")
+        return pd.DataFrame()
+
+def generate_phishing_summary(email_text):
+    prompt = f"""You are a security analyst reviewing a potential phishing email. Analyze this email content and provide a triage summary.
+
+Email Content:
+{email_text[:500]}
+
+Provide:
+1. Threat Assessment (1-2 sentences describing the phishing indicators)
+2. Risk Level (Critical / High / Medium / Low)
+3. Recommended Action (Block & Quarantine / Escalate to SOC / Flag for Review / Monitor)
+4. Key Indicators (2-3 specific phishing signals you identified)
+5. Confidence Score (High / Medium / Low)
+
+Format your response clearly with these five labeled sections."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return message.content[0].text
+
+phishing_df = load_phishing_data()
+
+if not phishing_df.empty:
+    st.write(f"**{len(phishing_df)} phishing emails loaded for triage**")
+
+    for idx, row in phishing_df.iterrows():
+        email_preview = str(row['text_combined'])[:150] + "..."
+        with st.expander(f"📧 Phishing Email #{idx + 1} — {email_preview}"):
+            st.write(f"**Email Content Preview:**")
+            st.write(str(row['text_combined'])[:500])
+
+            if st.button("Generate Phishing Analysis", key=f"phishing_{idx}"):
+                with st.spinner("Analyzing email..."):
+                    summary = generate_phishing_summary(str(row['text_combined']))
+                    st.session_state[f"phishing_summary_{idx}"] = summary
+
+            if f"phishing_summary_{idx}" in st.session_state:
+                st.markdown("---")
+                st.markdown("**🤖 AI Phishing Analysis:**")
+                st.write(st.session_state[f"phishing_summary_{idx}"])
+
+                st.markdown("**👤 Analyst Decision Required:**")
+                col_a, col_b, col_c = st.columns(3)
+
+                with col_a:
+                    if st.button("🚫 Block & Quarantine", key=f"block_{idx}"):
+                        st.error(f"🚫 Email #{idx + 1} blocked and quarantined.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": f"PHISH-{idx + 1}",
+                            "CVSS Score": "N/A",
+                            "AI Recommendation": "Block & Quarantine",
+                            "Human Decision": "Blocked & Quarantined",
+                            "Rationale": "Analyst confirmed phishing — blocked",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.resolved_count += 1
+
+                with col_b:
+                    if st.button("⚠️ Escalate to SOC", key=f"phish_escalate_{idx}"):
+                        st.warning(f"⚠️ Email #{idx + 1} escalated to SOC.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": f"PHISH-{idx + 1}",
+                            "CVSS Score": "N/A",
+                            "AI Recommendation": "Escalate to SOC",
+                            "Human Decision": "Escalated to SOC",
+                            "Rationale": "Analyst escalated for deeper investigation",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.escalated_count += 1
+
+                with col_c:
+                    phish_override = st.text_input(
+                        "Override reason (required):",
+                        key=f"phish_override_{idx}",
+                        placeholder="Explain why you are releasing this email..."
+                    )
+                    if st.button("✅ Release — False Positive", key=f"release_{idx}"):
+                        if phish_override:
+                            st.success(f"✅ Email #{idx + 1} released. Override logged.")
+                            st.session_state.audit_log.append({
+                                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "CVE ID": f"PHISH-{idx + 1}",
+                                "CVSS Score": "N/A",
+                                "AI Recommendation": "Block & Quarantine",
+                                "Human Decision": "Released — False Positive",
+                                "Rationale": phish_override,
+                                "Actioned By": "Analyst"
+                            })
+                        else:
+                            st.error("Override reason required before releasing.")
+else:
+    st.warning("No phishing data loaded. Check data/phishing_email.csv exists.")
