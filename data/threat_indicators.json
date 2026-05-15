@@ -1,0 +1,12 @@
+{
+  "indicators": [
+    {"url": "http://malicious-login.ru/steal", "type": "Phishing", "severity": "Critical", "reported": "2026-05-14"},
+    {"url": "http://fake-microsoft-update.com/patch", "type": "Malware Distribution", "severity": "Critical", "reported": "2026-05-13"},
+    {"url": "http://credential-harvest.xyz/login", "type": "Credential Harvesting", "severity": "High", "reported": "2026-05-12"},
+    {"url": "http://ransomware-dropper.net/payload", "type": "Ransomware", "severity": "Critical", "reported": "2026-05-11"},
+    {"url": "http://fake-docusign.com/sign", "type": "Phishing", "severity": "High", "reported": "2026-05-10"},
+    {"url": "http://suspicious-oauth.io/auth", "type": "Account Takeover", "severity": "High", "reported": "2026-05-09"},
+    {"url": "http://malware-cdn.ru/download", "type": "Malware Distribution", "severity": "Critical", "reported": "2026-05-08"},
+    {"url": "http://fake-zoom-meeting.com/join", "type": "Phishing", "severity": "Medium", "reported": "2026-05-07"}
+  ]
+}

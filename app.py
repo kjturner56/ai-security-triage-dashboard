@@ -194,6 +194,137 @@ if not df.empty:
 else:
     st.warning("No CVE data loaded. Check your connection.")
 
+# ── THREAT INDICATORS ─────────────────────────────────────────────────────────
+
+st.divider()
+st.subheader("🌐 Active Threat Indicators — URL Intelligence Feed")
+
+@st.cache_data
+def load_threat_indicators():
+    try:
+        import json
+        with open("data/threat_indicators.json", "r") as f:
+            data = json.load(f)
+        return pd.DataFrame(data["indicators"])
+    except Exception as e:
+        st.error(f"Error loading threat indicators: {e}")
+        return pd.DataFrame()
+
+def generate_url_analysis(url, threat_type, severity):
+    prompt = f"""You are a security analyst reviewing a malicious URL indicator. Analyze this threat and provide a response recommendation.
+
+URL: {url}
+Threat Type: {threat_type}
+Severity: {severity}
+
+Provide:
+1. Threat Summary (1-2 sentences describing what this URL likely does)
+2. Recommended Action (Block Immediately / Investigate / Monitor)
+3. Affected Systems (what enterprise assets are most at risk)
+4. Mitigation Steps (2-3 specific actions to take)
+5. Confidence Score (High / Medium / Low)
+
+Format your response clearly with these five labeled sections."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return message.content[0].text
+
+indicators_df = load_threat_indicators()
+
+if not indicators_df.empty:
+    critical_count = len(indicators_df[indicators_df['severity'] == 'Critical'])
+    high_count = len(indicators_df[indicators_df['severity'] == 'High'])
+
+    col_i1, col_i2, col_i3 = st.columns(3)
+    with col_i1:
+        st.metric("Total Indicators", len(indicators_df))
+    with col_i2:
+        st.metric("Critical", critical_count)
+    with col_i3:
+        st.metric("High", high_count)
+
+    st.write(f"**{len(indicators_df)} active threat indicators loaded**")
+
+    for idx, row in indicators_df.iterrows():
+        severity_icon = "🔴" if row['severity'] == "Critical" else "🟠" if row['severity'] == "High" else "🟡"
+        with st.expander(f"{severity_icon} {row['type']} — {row['url']} — Reported {row['reported']}"):
+            st.write(f"**URL:** `{row['url']}`")
+            st.write(f"**Type:** {row['type']}")
+            st.write(f"**Severity:** {row['severity']}")
+            st.write(f"**Reported:** {row['reported']}")
+
+            if st.button("Generate Threat Analysis", key=f"url_{idx}"):
+                with st.spinner("Analyzing threat indicator..."):
+                    analysis = generate_url_analysis(
+                        row['url'],
+                        row['type'],
+                        row['severity']
+                    )
+                    st.session_state[f"url_analysis_{idx}"] = analysis
+
+            if f"url_analysis_{idx}" in st.session_state:
+                st.markdown("---")
+                st.markdown("**🤖 AI Threat Analysis:**")
+                st.write(st.session_state[f"url_analysis_{idx}"])
+
+                st.markdown("**👤 Analyst Decision Required:**")
+                col_a, col_b, col_c = st.columns(3)
+
+                with col_a:
+                    if st.button("🚫 Block Immediately", key=f"url_block_{idx}"):
+                        st.error(f"🚫 {row['url']} blocked.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": f"URL-{idx + 1}",
+                            "CVSS Score": row['severity'],
+                            "AI Recommendation": "Block Immediately",
+                            "Human Decision": "Blocked",
+                            "Rationale": f"Analyst blocked {row['type']} indicator",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.resolved_count += 1
+
+                with col_b:
+                    if st.button("🔍 Investigate", key=f"url_investigate_{idx}"):
+                        st.warning(f"🔍 {row['url']} flagged for investigation.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": f"URL-{idx + 1}",
+                            "CVSS Score": row['severity'],
+                            "AI Recommendation": "Investigate",
+                            "Human Decision": "Under Investigation",
+                            "Rationale": "Analyst initiated investigation",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.escalated_count += 1
+
+                with col_c:
+                    url_override = st.text_input(
+                        "Override reason (required):",
+                        key=f"url_override_{idx}",
+                        placeholder="Explain why this is a false positive..."
+                    )
+                    if st.button("✅ False Positive", key=f"url_fp_{idx}"):
+                        if url_override:
+                            st.success(f"✅ {row['url']} marked as false positive.")
+                            st.session_state.audit_log.append({
+                                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "CVE ID": f"URL-{idx + 1}",
+                                "CVSS Score": row['severity'],
+                                "AI Recommendation": "Block Immediately",
+                                "Human Decision": "False Positive",
+                                "Rationale": url_override,
+                                "Actioned By": "Analyst"
+                            })
+                        else:
+                            st.error("Override reason required.")
+else:
+    st.warning("No threat indicators loaded. Check data/threat_indicators.json exists.")
+
 # ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 
 st.divider()
@@ -212,7 +343,7 @@ if st.session_state.audit_log:
     )
 else:
     st.info("No decisions logged yet. Triage a CVE above to begin.")
-    
+
 # ── PHISHING EMAIL TRIAGE ─────────────────────────────────────────────────────
 
 st.divider()
