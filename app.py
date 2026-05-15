@@ -8,7 +8,16 @@ import os
 
 load_dotenv()
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Works both locally and on Streamlit Cloud
+api_key = os.getenv("ANTHROPIC_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except:
+        st.error("ANTHROPIC_API_KEY not found. Add it to .env or Streamlit secrets.")
+        st.stop()
+
+client = anthropic.Anthropic(api_key=api_key)
 
 st.set_page_config(
     page_title="AI Security Triage Dashboard",
