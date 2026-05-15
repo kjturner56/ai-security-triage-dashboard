@@ -16,6 +16,17 @@ st.set_page_config(
     layout="wide"
 )
 
+# ── SESSION STATE INIT ────────────────────────────────────────────────────────
+
+if "audit_log" not in st.session_state:
+    st.session_state.audit_log = []
+
+if "escalated_count" not in st.session_state:
+    st.session_state.escalated_count = 0
+
+if "resolved_count" not in st.session_state:
+    st.session_state.resolved_count = 0
+
 st.title("🛡️ AI Security Triage Dashboard")
 st.caption("Enterprise threat and vulnerability decision-support with human-in-the-loop governance")
 
@@ -91,34 +102,31 @@ Format your response clearly with these four labeled sections."""
 
 # ── MAIN LAYOUT ───────────────────────────────────────────────────────────────
 
-col1, col2, col3, col4 = st.columns(4)
-
 df = fetch_cves()
+
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric("Critical CVEs", len(df) if not df.empty else 0)
 with col2:
-    st.metric("Pending Review", len(df) if not df.empty else 0)
+    st.metric("Pending Review", len(df) - len(st.session_state.audit_log) if not df.empty else 0)
 with col3:
-    st.metric("Escalated", "0")
+    st.metric("Escalated", st.session_state.escalated_count)
 with col4:
-    st.metric("Resolved Today", "0")
+    st.metric("Resolved Today", st.session_state.resolved_count)
 
 st.divider()
 
 st.subheader("🔴 Critical Vulnerabilities — Pending Triage")
 
-
 if not df.empty:
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col1:
-        st.write(f"**{len(df)} critical CVEs loaded from NIST NVD**")
+    st.write(f"**{len(df)} critical CVEs loaded from NIST NVD**")
 
     for idx, row in df.iterrows():
         with st.expander(f"🔴 {row['CVE ID']} — CVSS {row['CVSS Score']} — Published {row['Published']}"):
             st.write(f"**Description:** {row['Description']}")
 
-            if st.button(f"Generate AI Triage Summary", key=f"triage_{idx}"):
+            if st.button("Generate AI Triage Summary", key=f"triage_{idx}"):
                 with st.spinner("Analyzing vulnerability..."):
                     summary = generate_triage_summary(
                         row['CVE ID'],
@@ -134,14 +142,73 @@ if not df.empty:
 
                 st.markdown("**👤 Human Review Required:**")
                 col_a, col_b, col_c = st.columns(3)
+
                 with col_a:
                     if st.button("✅ Approve & Route", key=f"approve_{idx}"):
                         st.success(f"✅ {row['CVE ID']} approved and routed to response queue.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": row['CVE ID'],
+                            "CVSS Score": row['CVSS Score'],
+                            "AI Recommendation": "See summary above",
+                            "Human Decision": "Approved & Routed",
+                            "Rationale": "Analyst approved AI recommendation",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.resolved_count += 1
+
                 with col_b:
                     if st.button("⚠️ Escalate", key=f"escalate_{idx}"):
                         st.warning(f"⚠️ {row['CVE ID']} escalated to senior analyst.")
+                        st.session_state.audit_log.append({
+                            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "CVE ID": row['CVE ID'],
+                            "CVSS Score": row['CVSS Score'],
+                            "AI Recommendation": "See summary above",
+                            "Human Decision": "Escalated",
+                            "Rationale": "Analyst escalated to senior review",
+                            "Actioned By": "Analyst"
+                        })
+                        st.session_state.escalated_count += 1
+
                 with col_c:
+                    override_reason = st.text_input(
+                        "Override reason (required):",
+                        key=f"override_reason_{idx}",
+                        placeholder="Explain why you are deferring..."
+                    )
                     if st.button("🔁 Override & Defer", key=f"defer_{idx}"):
-                        st.info(f"🔁 {row['CVE ID']} deferred. Override logged.")
+                        if override_reason:
+                            st.info(f"🔁 {row['CVE ID']} deferred. Override logged.")
+                            st.session_state.audit_log.append({
+                                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "CVE ID": row['CVE ID'],
+                                "CVSS Score": row['CVSS Score'],
+                                "AI Recommendation": "See summary above",
+                                "Human Decision": "Override & Deferred",
+                                "Rationale": override_reason,
+                                "Actioned By": "Analyst"
+                            })
+                        else:
+                            st.error("Override reason is required before deferring.")
 else:
     st.warning("No CVE data loaded. Check your connection.")
+
+# ── AUDIT LOG ─────────────────────────────────────────────────────────────────
+
+st.divider()
+st.subheader("📋 Audit Log — All Decisions This Session")
+
+if st.session_state.audit_log:
+    audit_df = pd.DataFrame(st.session_state.audit_log)
+    st.dataframe(audit_df, use_container_width=True)
+
+    csv = audit_df.to_csv(index=False)
+    st.download_button(
+        label="⬇️ Download Audit Log (CSV)",
+        data=csv,
+        file_name=f"audit_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+else:
+    st.info("No decisions logged yet. Triage a CVE above to begin.")
