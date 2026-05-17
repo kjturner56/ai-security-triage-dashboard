@@ -39,6 +39,39 @@ if "resolved_count" not in st.session_state:
 
 st.markdown("""
 <style>
+/* Force dark theme */
+[data-testid="stAppViewContainer"] {
+    background-color: #0e1117;
+}
+[data-testid="stAppViewContainer"] > .main {
+    background-color: #0e1117;
+}
+header[data-testid="stHeader"] {
+    background-color: #0e1117;
+}
+[data-testid="stSidebar"] {
+    background-color: #1a1f2e;
+}
+
+/* Tab styling */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: #1a1f2e;
+    padding: 0.5rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+.stTabs [data-baseweb="tab"] {
+    color: #a8b2d8;
+    font-weight: 500;
+}
+.stTabs [aria-selected="true"] {
+    color: #ffffff;
+    background-color: #2d3561;
+    border-radius: 6px;
+    border-bottom-color: #e63946;
+}
+
+/* Dashboard header */
 .dashboard-header {
     background: linear-gradient(135deg, #1a1f2e 0%, #2d3561 100%);
     padding: 2rem;
@@ -57,6 +90,8 @@ st.markdown("""
     color: #a8b2d8;
     margin-top: 0.3rem;
 }
+
+/* AI summary box */
 .insight-box {
     background: linear-gradient(135deg, #1e3a2f 0%, #1a2e3d 100%);
     border: 1px solid #2d6a4f;
@@ -77,6 +112,23 @@ st.markdown("""
     color: #e8f4ea;
     font-size: 1rem;
 }
+
+/* AI triage result box */
+.triage-box {
+    background: #1a2035;
+    border: 1px solid #2d3561;
+    border-left: 4px solid #4361ee;
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 0.5rem 0 1rem 0;
+    font-family: monospace;
+    font-size: 0.88rem;
+    color: #c8d0e8;
+    white-space: pre-wrap;
+    line-height: 1.6;
+}
+
+/* Section headers */
 .section-header {
     font-size: 1.2rem;
     font-weight: 600;
@@ -85,6 +137,8 @@ st.markdown("""
     border-bottom: 2px solid #e63946;
     margin-bottom: 1rem;
 }
+
+/* Governance note */
 .governance-note {
     background: #1a2035;
     border: 1px solid #2d3561;
@@ -93,59 +147,6 @@ st.markdown("""
     margin-bottom: 1rem;
     font-size: 0.85rem;
     color: #a8b2d8;
-}
-            /* Force dark theme */
-[data-testid="stAppViewContainer"] {
-    background-color: #0e1117;
-}
-
-[data-testid="stHeader"] {
-    background-color: #0e1117;
-}
-
-[data-testid="stSidebar"] {
-    background-color: #1a1f2e;
-}
-
-.stTabs [data-baseweb="tab-list"] {
-    background-color: #1a1f2e;
-}
-
-.stTabs [data-baseweb="tab"] {
-    color: #a8b2d8;
-}
-
-.stTabs [aria-selected="true"] {
-    color: #ffffff;
-    border-bottom-color: #e63946;
-}
-            [data-testid="stAppViewContainer"] {
-    background-color: #0e1117;
-}
-[data-testid="stHeader"] {
-    background-color: #0e1117;
-}
-.stTabs [data-baseweb="tab-list"] {
-    background-color: #1a1f2e;
-    padding: 0.5rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
-}
-.stTabs [data-baseweb="tab"] {
-    color: #a8b2d8;
-    font-weight: 500;
-}
-.stTabs [aria-selected="true"] {
-    color: #ffffff;
-    background-color: #2d3561;
-    border-radius: 6px;
-}
-            /* Force dark theme */
-[data-testid="stAppViewContainer"] > .main {
-    background-color: #0e1117;
-}
-header[data-testid="stHeader"] {
-    background-color: #0e1117;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -227,18 +228,25 @@ def load_phishing_data():
     except:
         return pd.DataFrame()
 
-# Load all data upfront
 df = fetch_cves()
 indicators_df = load_threat_indicators()
 phishing_df = load_phishing_data()
 
 critical_url = len(indicators_df[indicators_df['severity'] == 'Critical']) if not indicators_df.empty else 0
+high_url = len(indicators_df[indicators_df['severity'] == 'High']) if not indicators_df.empty else 0
 total_threats = (len(df) if not df.empty else 0) + \
                 (len(indicators_df) if not indicators_df.empty else 0) + \
                 (len(phishing_df) if not phishing_df.empty else 0)
 pending = total_threats - len(st.session_state.audit_log)
 
 # ── AI FUNCTIONS ──────────────────────────────────────────────────────────────
+
+PLAIN_TEXT_INSTRUCTION = """
+Use plain text only. No markdown headers, no bold, no bullet symbols, no special formatting.
+Use numbered sections with a colon, like:
+1. Risk Summary: [your text here]
+2. Recommended Action: [your text here]
+Keep each section on its own line."""
 
 def generate_triage_summary(cve_id, description, cvss_score):
     message = client.messages.create(
@@ -250,13 +258,12 @@ CVE ID: {cve_id}
 CVSS Score: {cvss_score}
 Description: {description}
 
-Provide:
+Provide these four sections:
 1. Risk Summary (1-2 sentences)
 2. Recommended Action (Respond Now / Escalate / Monitor / Defer)
 3. Rationale (1-2 sentences)
 4. Confidence Score (High / Medium / Low)
-
-Format clearly with these four labeled sections."""}]
+{PLAIN_TEXT_INSTRUCTION}"""}]
     )
     return message.content[0].text
 
@@ -270,14 +277,13 @@ URL: {url}
 Threat Type: {threat_type}
 Severity: {severity}
 
-Provide:
+Provide these five sections:
 1. Threat Summary (1-2 sentences)
 2. Recommended Action (Block Immediately / Investigate / Monitor)
 3. Affected Systems (what enterprise assets are most at risk)
-4. Mitigation Steps (2-3 specific actions)
+4. Mitigation Steps (2-3 specific actions, listed as plain text)
 5. Confidence Score (High / Medium / Low)
-
-Format clearly with these five labeled sections."""}]
+{PLAIN_TEXT_INSTRUCTION}"""}]
     )
     return message.content[0].text
 
@@ -290,16 +296,19 @@ def generate_phishing_summary(email_text):
 Email Content:
 {email_text[:500]}
 
-Provide:
+Provide these five sections:
 1. Threat Assessment (1-2 sentences)
 2. Risk Level (Critical / High / Medium / Low)
 3. Recommended Action (Block & Quarantine / Escalate to SOC / Flag for Review / Monitor)
-4. Key Indicators (2-3 specific phishing signals)
+4. Key Indicators (2-3 specific phishing signals, listed as plain text)
 5. Confidence Score (High / Medium / Low)
-
-Format clearly with these five labeled sections."""}]
+{PLAIN_TEXT_INSTRUCTION}"""}]
     )
     return message.content[0].text
+
+def show_ai_summary(text):
+    """Display AI summary in a clean styled box."""
+    st.markdown(f'<div class="triage-box">{text}</div>', unsafe_allow_html=True)
 
 def log_decision(source, id_val, severity, ai_rec, human_dec, rationale):
     st.session_state.audit_log.append({
@@ -335,7 +344,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
 
-    # Executive Summary
     insight = (f"{pending} threats pending analyst review across "
                f"{len(df) if not df.empty else 0} critical CVEs, "
                f"{len(indicators_df) if not indicators_df.empty else 0} active URL indicators, and "
@@ -350,7 +358,6 @@ with tab1:
     </div>
     """, unsafe_allow_html=True)
 
-    # Top metrics
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.metric("Critical CVEs", len(df) if not df.empty else 0)
@@ -366,11 +373,8 @@ with tab1:
 
     st.divider()
 
-    # Threat Summary Table
     st.markdown('<div class="section-header">📊 Threat Landscape Summary</div>',
                 unsafe_allow_html=True)
-
-    high_url = len(indicators_df[indicators_df['severity'] == 'High']) if not indicators_df.empty else 0
 
     summary_data = {
         "Threat Source": [
@@ -393,22 +397,13 @@ with tab1:
             "🌐 URL Indicators",
             "📧 Phishing"
         ],
-        "Status": [
-            "Pending Review",
-            "Pending Review",
-            "Pending Review"
-        ]
+        "Status": ["Pending Review", "Pending Review", "Pending Review"]
     }
 
-    st.dataframe(
-        pd.DataFrame(summary_data),
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
 
     st.divider()
 
-    # Governance architecture note
     st.markdown('<div class="section-header">🏛️ Governance Architecture</div>',
                 unsafe_allow_html=True)
 
@@ -447,7 +442,8 @@ with tab2:
     st.markdown("""
     <div class="governance-note">
         Data source: NIST National Vulnerability Database (NVD) · Remote code execution vulnerabilities ·
-        CVSS 9.0+ · AI generates triage summary · Analyst approves action before routing
+        CVSS 9.0+ · AI generates triage summary · Analyst approves action before routing ·
+        In production, AI summaries would be pre-generated on ingestion — analysts review a pre-triaged queue.
     </div>
     """, unsafe_allow_html=True)
 
@@ -467,7 +463,7 @@ with tab2:
 
                 if f"summary_{idx}" in st.session_state:
                     st.markdown("---")
-                    st.info(st.session_state[f"summary_{idx}"])
+                    show_ai_summary(st.session_state[f"summary_{idx}"])
                     st.markdown("**👤 Human Review Required — Select Action:**")
                     col_a, col_b, col_c = st.columns(3)
 
@@ -525,7 +521,7 @@ with tab3:
         with col_i2:
             st.metric("Critical", critical_url)
         with col_i3:
-            st.metric("High", len(indicators_df[indicators_df['severity'] == 'High']))
+            st.metric("High", high_url)
 
         st.divider()
 
@@ -550,7 +546,7 @@ with tab3:
 
                 if f"url_analysis_{idx}" in st.session_state:
                     st.markdown("---")
-                    st.info(st.session_state[f"url_analysis_{idx}"])
+                    show_ai_summary(st.session_state[f"url_analysis_{idx}"])
                     st.markdown("**👤 Analyst Decision Required:**")
                     col_a, col_b, col_c = st.columns(3)
 
@@ -617,7 +613,7 @@ with tab4:
 
                 if f"phishing_summary_{idx}" in st.session_state:
                     st.markdown("---")
-                    st.info(st.session_state[f"phishing_summary_{idx}"])
+                    show_ai_summary(st.session_state[f"phishing_summary_{idx}"])
                     st.markdown("**👤 Analyst Decision Required:**")
                     col_a, col_b, col_c = st.columns(3)
 
@@ -701,7 +697,6 @@ with tab5:
             mime="text/csv"
         )
 
-        # Override analysis
         if overrides > 0:
             st.divider()
             st.markdown("**🔍 Override Analysis — Where AI and Analyst Disagreed:**")
