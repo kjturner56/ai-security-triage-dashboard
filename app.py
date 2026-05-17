@@ -148,6 +148,7 @@ header[data-testid="stHeader"] {
     font-size: 0.85rem;
     color: #a8b2d8;
 }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -167,14 +168,22 @@ st.markdown("""
 
 # ── DATA LOADING ──────────────────────────────────────────────────────────────
 
+from datetime import datetime, timedelta
+
 @st.cache_data(ttl=3600)
 def fetch_cves():
     url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    
+    # Pull last 90 days only
+    end_date = datetime.utcnow()
+    start_date = end_date - timedelta(days=90)
+    
     params = {
         "resultsPerPage": 20,
         "startIndex": 0,
         "cvssV3Severity": "CRITICAL",
-        "keywordSearch": "remote code execution"
+        "pubStartDate": start_date.strftime("%Y-%m-%dT00:00:00.000"),
+        "pubEndDate": end_date.strftime("%Y-%m-%dT23:59:59.999"),
     }
     try:
         response = requests.get(url, params=params, timeout=15)
@@ -206,6 +215,10 @@ def fetch_cves():
         df = pd.DataFrame(records)
         if not df.empty:
             df = df.sort_values("Published", ascending=False).reset_index(drop=True)
+            df = df[df['CVSS Score'].apply(
+                lambda x: float(x) >= 9.0 if x != 'N/A' else False
+            )].reset_index(drop=True)
+            df = df[df['CVE ID'].str.extract(r'CVE-(\d{4})')[0].astype(int) >= 2024].reset_index(drop=True)
         return df
     except Exception as e:
         st.error(f"Error fetching CVE data: {e}")
