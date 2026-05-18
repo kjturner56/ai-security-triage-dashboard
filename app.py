@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import anthropic
 from dotenv import load_dotenv
 import os
@@ -148,7 +148,6 @@ header[data-testid="stHeader"] {
     font-size: 0.85rem;
     color: #a8b2d8;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -168,16 +167,11 @@ st.markdown("""
 
 # ── DATA LOADING ──────────────────────────────────────────────────────────────
 
-from datetime import datetime, timedelta
-
 @st.cache_data(ttl=3600)
 def fetch_cves():
     url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-    
-    # Pull last 90 days only
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=90)
-    
     params = {
         "resultsPerPage": 20,
         "startIndex": 0,
@@ -224,6 +218,20 @@ def fetch_cves():
         st.error(f"Error fetching CVE data: {e}")
         return pd.DataFrame()
 
+@st.cache_data(ttl=86400)
+def fetch_kev_ids():
+    """Fetch CISA Known Exploited Vulnerabilities catalog."""
+    try:
+        response = requests.get(
+            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+            timeout=15
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {v["cveID"] for v in data.get("vulnerabilities", [])}
+    except Exception:
+        return set()
+
 @st.cache_data
 def load_threat_indicators():
     try:
@@ -241,9 +249,15 @@ def load_phishing_data():
     except:
         return pd.DataFrame()
 
+# ── LOAD ALL DATA (once) ──────────────────────────────────────────────────────
+
 df = fetch_cves()
+kev_ids = fetch_kev_ids()
 indicators_df = load_threat_indicators()
 phishing_df = load_phishing_data()
+
+if not df.empty:
+    df["KEV"] = df["CVE ID"].apply(lambda x: x in kev_ids)
 
 critical_url = len(indicators_df[indicators_df['severity'] == 'Critical']) if not indicators_df.empty else 0
 high_url = len(indicators_df[indicators_df['severity'] == 'High']) if not indicators_df.empty else 0
@@ -320,7 +334,6 @@ Provide these five sections:
     return message.content[0].text
 
 def show_ai_summary(text):
-    """Display AI summary in a clean styled box."""
     st.markdown(f'<div class="triage-box">{text}</div>', unsafe_allow_html=True)
 
 def log_decision(source, id_val, severity, ai_rec, human_dec, rationale):
@@ -401,7 +414,7 @@ with tab1:
             len(phishing_df) if not phishing_df.empty else 0
         ],
         "Severity": [
-            "All CVSS 9.8 — Critical",
+            "All CVSS 9.0+ — Critical",
             f"{critical_url} Critical · {high_url} High · 1 Medium",
             "Labeled phishing — pending analyst scoring"
         ],
@@ -454,20 +467,28 @@ with tab2:
 
     st.markdown("""
     <div class="governance-note">
-        Data source: NIST National Vulnerability Database (NVD) · Remote code execution vulnerabilities ·
-        CVSS 9.0+ · AI generates triage summary · Analyst approves action before routing ·
-        In production, AI summaries would be pre-generated on ingestion — analysts review a pre-triaged queue.
+        Data source: NIST National Vulnerability Database (NVD) · CVSS 9.0+ Critical vulnerabilities ·
+        CISA KEV cross-reference for active exploitation status · AI generates triage summary ·
+        Analyst approves action before routing · In production, AI summaries would be pre-generated
+        on ingestion — analysts review a pre-triaged queue.
     </div>
     """, unsafe_allow_html=True)
 
     if not df.empty:
-        st.caption(f"{len(df)} critical CVEs loaded · Sorted by most recent publication")
+        kev_count = df["KEV"].sum() if "KEV" in df.columns else 0
+        st.caption(f"{len(df)} critical CVEs loaded · {kev_count} with active exploitation confirmed (CISA KEV) · Sorted by most recent publication")
 
         for idx, row in df.iterrows():
+            kev_flag = " 🚨 KEV" if row.get("KEV") else ""
             with st.expander(
-                f"🔴 {row['CVE ID']} — CVSS {row['CVSS Score']} — Published {row['Published']}"
+                f"🔴 {row['CVE ID']} — CVSS {row['CVSS Score']} — Published {row['Published']}{kev_flag}"
             ):
                 st.markdown(f"**Description:** {row['Description']}")
+
+                if row.get("KEV"):
+                    st.error("🚨 **CISA KEV Match** — Active exploitation confirmed in the wild. Immediate response required regardless of CVSS score.")
+                else:
+                    st.caption("✅ Not listed in CISA Known Exploited Vulnerabilities catalog.")
 
                 if st.button("🤖 Generate AI Triage Summary", key=f"triage_{idx}"):
                     with st.spinner("Analyzing vulnerability..."):
@@ -604,9 +625,10 @@ with tab4:
 
     st.markdown("""
     <div class="governance-note">
-        Data source: Labeled phishing email dataset (82,500 emails) ·
-        AI analyzes email content for phishing indicators and risk level ·
-        Analyst confirms block, escalates to SOC, or overrides with written rationale
+        Data source: Labeled phishing email dataset (82,500 emails) used to demonstrate triage
+        workflow and governance architecture · AI analyzes email content for phishing indicators
+        and risk level · Analyst confirms block, escalates to SOC, or overrides with written
+        rationale · In production, this connects to a live email security gateway feed.
     </div>
     """, unsafe_allow_html=True)
 
@@ -735,5 +757,5 @@ st.markdown("---")
 st.caption(
     "AI Security Triage Dashboard · Kenneth R. Turner · kenturnerportfolio.com · "
     "Governance: AI recommends, human decides, system logs everything · "
-    "Built with Python, Streamlit, Anthropic Claude API, NIST NVD"
+    "Built with Python, Streamlit, Anthropic Claude API, NIST NVD, CISA KEV"
 )
