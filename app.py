@@ -6,6 +6,7 @@ import anthropic
 from dotenv import load_dotenv
 import os
 import json
+import html
 
 load_dotenv()
 
@@ -277,8 +278,8 @@ Keep each section on its own line."""
 
 def generate_triage_summary(cve_id, description, cvss_score):
     message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=500,
+        model="claude-sonnet-5",
+        max_tokens=2000,
         messages=[{"role": "user", "content": f"""You are a security analyst assistant. Analyze this vulnerability.
 
 CVE ID: {cve_id}
@@ -292,12 +293,12 @@ Provide these four sections:
 4. Confidence Score (High / Medium / Low)
 {PLAIN_TEXT_INSTRUCTION}"""}]
     )
-    return message.content[0].text
+    return next(b.text for b in message.content if b.type == "text")
 
 def generate_url_analysis(url, threat_type, severity):
     message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=500,
+        model="claude-sonnet-5",
+        max_tokens=2000,
         messages=[{"role": "user", "content": f"""You are a security analyst reviewing a malicious URL indicator.
 
 URL: {url}
@@ -312,12 +313,12 @@ Provide these five sections:
 5. Confidence Score (High / Medium / Low)
 {PLAIN_TEXT_INSTRUCTION}"""}]
     )
-    return message.content[0].text
+    return next(b.text for b in message.content if b.type == "text")
 
 def generate_phishing_summary(email_text):
     message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=500,
+        model="claude-sonnet-5",
+        max_tokens=2000,
         messages=[{"role": "user", "content": f"""You are a security analyst reviewing a potential phishing email.
 
 Email Content:
@@ -331,10 +332,12 @@ Provide these five sections:
 5. Confidence Score (High / Medium / Low)
 {PLAIN_TEXT_INSTRUCTION}"""}]
     )
-    return message.content[0].text
+    return next(b.text for b in message.content if b.type == "text")
 
 def show_ai_summary(text):
-    st.markdown(f'<div class="triage-box">{text}</div>', unsafe_allow_html=True)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    safe = "<br>".join(html.escape(line) for line in lines)
+    st.markdown(f'<div class="triage-box">{safe}</div>', unsafe_allow_html=True)
 
 def log_decision(source, id_val, severity, ai_rec, human_dec, rationale):
     st.session_state.audit_log.append({
